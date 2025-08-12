@@ -118,3 +118,184 @@ mkdir -p /export/data/
 mkdir -p /export/servers/
 mkdir -p /export/software/
 ```
+安装传输工具
+```
+yum install lrzsz -y
+```
+进入software内，使用rz命令上传jdk安装包，如果出现乱码，使用rz -be命令，反复切换使用试试看。
+
+使用tar -zxvf 命令解压jdk安装包到servers下即可。
+
+配置环境变量
+```
+vi /etc/profile
+
+export JAVA_HOME=/export/servers/jdk1.8.0_152
+export PATH=$PATH:$JAVA_HOME/bin
+export HADOOP_HOME=/export/servers/wfb-hadoop/hadoop-3.3.6
+export PATH=$PATH:$HADOOP_HOME/bin:$HADOOP_HOME/sbin
+
+:wq
+source /etc/profile
+java -version
+```
+出现Java的信息即可。
+分发jdk目录和环境变量文件
+```
+scp -r /export/servers/jdkjdk1.8.0_152 root@hadoop2:/export/servers/
+scp -r /export/servers/jdkjdk1.8.0_152 root@hadoop3:/export/servers/
+scp -r /etc/profile root@hadoop2:/etc/
+scp -r /etc/profile root@hadoop3:/etc/
+```
+### 7. 部署hadoop
+先进入software上传hadoop安装包，用tar解压到servers的wfb-hadoop文件夹内，执行hadoop version,显示hadoop版本号。
+
+进入hadoop配置文件目录，修改配置文件内容
+```
+cd etc/hadoop
+
+vi hadoop-enx.sh
+#添加在底部
+export JAVA_HOME=/export/servers/jdk1.8.0_152
+export HDFS_NAMENODE_USER=root
+export HDFS_DATANODE_USER=root
+export HDFS_SECONDARYNAMENODE_USER=root
+export YARN_RESOURCEMANAGER_USER=root
+export YARN_NODEMANAGER_USER=root
+
+vi core-site.xml
+#添加在标签内
+<property>
+<name>fs.defaultFS</name>
+<value>hdfs://hadoop1:9000</value>
+</property>
+<property>
+<name>hadoop.tmp.dir</name>
+<value>/export/data/hadoop-wfb-3.3.6</value>
+</property>
+<property>
+<name>hadoop.http.staticuser.user</name>
+<value>root</value>
+</property>
+<property>
+<name>hadoop.proxyuser.root.groups</name>
+<value>*</value>
+</property>
+<property>
+<name>fs.trash.interval</name>
+<value>1440</value>
+</property>
+<property>
+<name>hadoop.proxyuser.root.hosts</name>
+<value>*</value>
+</property>
+
+vi hdfs_site.xml
+#添加在标签内
+<property>
+<name>dfs.replication</name>
+<value>2</value>
+</property>
+<property>
+<name>dfs.namenode.secondary.http-address</name>
+<value>hadoop2:9868</value>
+</property>
+
+vi mapred-site.xml
+<property>
+<name>mapreduce.framework.name</name>
+<value>yarn</value>
+</property>
+<property>
+<name>mapreduce.jobhistory.address</name>
+<value>hadoop1:10020</value>
+</property>
+<property>
+<name>mapreduce.jobhistory.webapp.address</name>
+<value>hadoop1:19888</value>
+</property>
+<property>
+<name>yarn.app.mapreduce.am.env</name>
+<value>HADOOP_MAPRED_HOME=/export/server/wfb-hadoop/hadoop-3.3.6</value>
+</property>
+<property>
+<name>mapreduce.map.env</name>
+<value>HADOOP_MAPRED_HOME=/export/server/wfb-hadoop/hadoop-3.3.6</value>
+</property>
+<property>
+<name>mapreduce.reduce.env</name>
+<value>HADOOP_MAPRED_HOME=/export/server/wfb-hadoop/hadoop-3.3.6</value>
+</property>
+
+vi yarn-site.xml
+<property>
+<name>yarn.resourcemanager.hostname</name>
+<value>hadoop1</value>
+</property>
+<property>
+<name>yarn.nodemanager.aux-services</name>
+<value>mapreduce_shuffle</value>
+</property>
+<property>
+<name>yarn.nodemanager.peme-check-enabled</name>
+<value>false</value>
+</property>
+<property>
+<name>yarn.nodemanager.veme-check-enabled</name>
+<value>false</value>
+</property>
+<property>
+<name>yarn.log-aggregation-enable</name>
+<value>true</value>
+</property>
+<property>
+<name>yarn.log.server.url</name>
+<value>http://hadoop1:19888/jobhistory/logs</value>
+</property>
+<property>
+<name>yarn.log-aggregation.retain-seconds</name>
+<value>604800</value>
+</property>
+
+vi workers
+#更改内容为
+hadoop2
+hadoop3
+
+#分发hadoop安装目录
+scp -r /export/servers/wfb-hadoop root@hadoop2:/export/servers/
+scp -r /export/servers/wfb-hadoop root@hadoop3:/export/servers/
+#格式化hdfs
+hdfs namenode -format
+```
+接下来使用jps在各个主机上查看hadoop的守护进程，hadoop1为主节点，应有namenode、resourcemanager两个进程，hadoop2为从节点，应有datanode、secondarynamenode、nodemanager三个进程，hadoop3为从节点，应有datanode、nodemanager。
+
+自此，hadoop集群的基础安装就好了，具体的各个节点的功能请详读配置文件。
+
+没放图片是因为图片上传比较麻烦，但是该有的内容已经写的极为详尽，需要具备基本的Linux操作基础，本文纯手打，如有错漏之处还请见谅，可以查看错误日志报错位置逐行修改，我自己也是这样一点点改动的。
+
+## 踩坑记录
+### 1. 环境变量问题
+有的时候从ssh访问的非交互式链接就会容易出现环境变量的配置文件出现无法读取的问题，这一点根据ai给出的解决方案和重启得到了解决，如果出现了无法同时启动三台机器中的hadoop进程的情况，请逐步排查原因。
+
+另外，更改了环境变量的配置文件之后请一定要记住source一下。
+### 2. 防火墙问题
+本文只是简单的搭建了测试环境，并不适合生产环境，于是我的解决方案直接把三台虚拟机的防火墙ban了，减少操作成本。
+
+有需要的可以针对性的开放对应端口。
+### 3. rz上传乱码问题
+有时候使用-be参数可以解决，有时候不行，只能用原来的rz，多试几次就能成功，不太确定是什么原因。
+
+### 4. 下机时记得先stop hadoop集群
+不要随便挂起，容易损坏虚拟机文件，谁知道什么时候就打不开了，而且最新的VMware不知道为什么卡卡的，用了Xshell之后才舒服一些。正好锻炼了我的敲代码能力。
+
+## 参考链接
+jdk安装链接
+
+https://blog.csdn.net/gaobing1/article/details/122112871
+
+hadoop下载链接（清华源）
+
+https://mirrors.tuna.tsinghua.edu.cn/apache/hadoop/common/hadoop-3.3.6/
+
+学校用的黑马的教材，根据上面写写改改的，挺好懂的。
