@@ -140,6 +140,7 @@ source /etc/profile
 java -version
 ```
 出现Java的信息即可。
+
 分发jdk目录和环境变量文件
 ```
 scp -r /export/servers/jdkjdk1.8.0_152 root@hadoop2:/export/servers/
